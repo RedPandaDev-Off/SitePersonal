@@ -1,0 +1,127 @@
+
+@import url('https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 240 10% 4%;
+    --foreground: 40 15% 95%;
+
+    --card: 240 10% 7%;
+    --card-foreground: 40 15% 95%;
+
+    --popover: 240 10% 7%;
+    --popover-foreground: 40 15% 95%;
+
+    --primary: 38 92% 50%;
+    --primary-foreground: 240 10% 4%;
+
+    --secondary: 240 5% 15%;
+    --secondary-foreground: 40 15% 90%;
+
+    --muted: 240 5% 18%;
+    --muted-foreground: 240 5% 55%;
+
+    --accent: 24 95% 53%;
+    --accent-foreground: 240 10% 4%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 40 15% 95%;
+
+    --border: 240 5% 18%;
+    --input: 240 5% 18%;
+    --ring: 38 92% 50%;
+
+    --radius: 0.75rem;
+
+    /* Custom tokens */
+    --gradient-primary: linear-gradient(135deg, hsl(38, 92%, 50%) 0%, hsl(24, 95%, 53%) 100%);
+    --gradient-hero: linear-gradient(180deg, hsl(240, 10%, 4%) 0%, hsl(240, 10%, 8%) 100%);
+    --gradient-card: linear-gradient(145deg, hsl(240, 10%, 9%) 0%, hsl(240, 10%, 6%) 100%);
+    --gradient-text: linear-gradient(135deg, hsl(38, 92%, 60%) 0%, hsl(24, 95%, 63%) 100%);
+    
+    --shadow-glow: 0 0 60px hsl(38, 92%, 50%, 0.15);
+    --shadow-card: 0 20px 40px -15px hsl(0, 0%, 0%, 0.5);
+    --shadow-button: 0 10px 30px -10px hsl(38, 92%, 50%, 0.4);
+
+    --font-heading: 'Sora', sans-serif;
+    --font-body: 'Inter', sans-serif;
+
+    --sidebar-background: 240 10% 7%;
+    --sidebar-foreground: 40 15% 95%;
+    --sidebar-primary: 38 92% 50%;
+    --sidebar-primary-foreground: 240 10% 4%;
+    --sidebar-accent: 240 5% 15%;
+    --sidebar-accent-foreground: 40 15% 95%;
+    --sidebar-border: 240 5% 18%;
+    --sidebar-ring: 38 92% 50%;
+  }
+
+  .dark {
+    --background: 240 10% 4%;
+    --foreground: 40 15% 95%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-body);
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-heading);
+  }
+}
+
+@layer utilities {
+  .text-gradient {
+    background: var(--gradient-text);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .bg-gradient-primary {
+    background: var(--gradient-primary);
+  }
+
+  .bg-gradient-hero {
+    background: var(--gradient-hero);
+  }
+
+  .bg-gradient-card {
+    background: var(--gradient-card);
+  }
+
+  .shadow-glow {
+    box-shadow: var(--shadow-glow);
+  }
+
+  .shadow-card {
+    box-shadow: var(--shadow-card);
+  }
+
+  .shadow-button {
+    box-shadow: var(--shadow-button);
+  }
+
+  .animate-float {
+    animation: float 6s ease-in-out infinite;
+  }
+
+  .animate-pulse-slow {
+    animation: pulse 4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+
+  @keyframes float {
+    0%, 100% { transform: translateY(0px); }
+    50% { transform: translateY(-20px); }
+  }
+}
