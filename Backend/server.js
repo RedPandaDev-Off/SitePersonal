@@ -1,9 +1,12 @@
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const app = express();
 const pool = require('./db');
 const userRoutes = require('./routes/user.routes');
 const quotesRoutes = require('./routes/quotes.route');
+const paymentRoutes = require('./routes/payment.routes');
+
 
 
 // Vérification explicite de la connexion PostgreSQL au démarrage
@@ -16,6 +19,12 @@ pool.connect()
 
 
 app.use(cors());
+
+// IMPORTANT: Le webhook Stripe doit recevoir le raw body, donc AVANT express.json()
+// On définit juste la route webhook ici avec express.raw()
+const paymentController = require('./controllers/payment.controller');
+app.post('/api/payments/webhook', express.raw({ type: 'application/json' }), paymentController.handleWebhook);
+
 app.use(express.json()); // Pour parser le JSON dans les requêtes POST
 
 
@@ -23,6 +32,8 @@ app.use(express.json()); // Pour parser le JSON dans les requêtes POST
 app.use('/api/users', userRoutes);
 // Routes devis
 app.use('/api/quotes', quotesRoutes);
+// Routes paiements Stripe (sauf webhook qui est déjà défini)
+app.use('/api/payments', paymentRoutes);
 
 
 
