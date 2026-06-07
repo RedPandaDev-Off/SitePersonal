@@ -1,0 +1,17 @@
+# Secrets — ne jamais committer
+.env
+*.env
+!.env.example
+
+# Dépendances
+node_modules/
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build
+dist/

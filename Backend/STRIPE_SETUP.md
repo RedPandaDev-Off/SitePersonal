@@ -231,7 +231,7 @@ const SuccessPage = () => {
     fetch(`http://localhost:4000/api/payments/status/${quoteId}`)
       .then(res => res.json())
       .then(data => {
-        console.log('Statut du paiement:', data.payment_status);
+       
       });
   }, [quoteId]);
 

@@ -1,27 +1,31 @@
 const express = require('express');
 const router = express.Router();
 const paymentController = require('../controllers/payment.controller');
+const { authenticateToken, requireAdmin } = require('../middleware/auth.middleware');
 
 /**
  * ========================================
- * ROUTES PAYMENT LINKS (RECOMMANDÉ)
+ * ROUTES PAYMENT LINKS (Admin seulement)
  * ========================================
  */
 
-// Créer un Payment Link permanent pour un devis
-router.post('/create-payment-link', paymentController.createPaymentLink);
+// Créer un Payment Link permanent pour l'acompte (30%)
+router.post('/create-payment-link', authenticateToken, requireAdmin, paymentController.createPaymentLink);
+
+// Créer un Payment Link pour le solde (70%)
+router.post('/create-balance-payment', authenticateToken, requireAdmin, paymentController.createBalancePaymentLink);
 
 // Désactiver un Payment Link
-router.delete('/payment-link/:quoteId', paymentController.deactivatePaymentLink);
+router.delete('/payment-link/:quoteId', authenticateToken, requireAdmin, paymentController.deactivatePaymentLink);
 
 /**
  * ========================================
- * ROUTES CHECKOUT SESSION (Alternative)
+ * ROUTES CHECKOUT SESSION (Admin seulement)
  * ========================================
  */
 
 // Créer une session de paiement Stripe Checkout (expire après 24h)
-router.post('/create-checkout-session', paymentController.createCheckoutSession);
+router.post('/create-checkout-session', authenticateToken, requireAdmin, paymentController.createCheckoutSession);
 
 /**
  * ========================================
@@ -29,11 +33,11 @@ router.post('/create-checkout-session', paymentController.createCheckoutSession)
  * ========================================
  */
 
-// Vérifier le statut d'un paiement d'un devis
-router.get('/status/:quoteId', paymentController.getPaymentStatus);
+// Vérifier le statut d'un paiement d'un devis (authentifié)
+router.get('/status/:quoteId', authenticateToken, paymentController.getPaymentStatus);
 
-// Récupérer l'historique des paiements d'un utilisateur
-router.get('/history/user/:userId', paymentController.getPaymentHistory);
+// Récupérer l'historique des paiements d'un utilisateur (admin)
+router.get('/history/user/:userId', authenticateToken, requireAdmin, paymentController.getPaymentHistory);
 
 /**
  * ========================================
@@ -42,13 +46,13 @@ router.get('/history/user/:userId', paymentController.getPaymentHistory);
  */
 
 // Dashboard admin complet avec toutes les statistiques
-router.get('/admin/dashboard', paymentController.getAdminDashboard);
+router.get('/admin/dashboard', authenticateToken, requireAdmin, paymentController.getAdminDashboard);
 
 // Récupérer tous les paiements (filtrable)
-router.get('/all', paymentController.getAllPayments);
+router.get('/all', authenticateToken, requireAdmin, paymentController.getAllPayments);
 
 // Récupérer les détails d'un paiement depuis Stripe (optionnel)
-router.get('/stripe-details/:quoteId', paymentController.getStripePaymentDetails);
+router.get('/stripe-details/:quoteId', authenticateToken, requireAdmin, paymentController.getStripePaymentDetails);
 
 /**
  * ========================================

@@ -7,6 +7,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { pdf } from "@react-pdf/renderer";
 import QuotePDF from "../components/QuotePDF";
+import InvoicePDF from "../components/InvoicePDF";
+import { useAuth } from "../lib/auth";
+import { useNavigate } from "react-router-dom";
+
+
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:4000";
 
 import {
   LogOut,
@@ -22,11 +28,21 @@ import {
   ExternalLink,
   CreditCard,
   Download,
+  Trash2,
+  ArrowLeft,
+  Eye,
+  Globe,
+  BarChart3,
+  Database,
+  Table2,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
+
 
 interface Quote {
   id: string;
-  client_id?: number | string;
+  client?: number | string;
   name: string;
   email: string;
   service_type: string;
@@ -36,8 +52,15 @@ interface Quote {
   status: string;
   payment_status: string | null;
   deposit_amount: number | null;
+  deposit_paid?: boolean;
+  deposit_paid_at?: string | null;
+  balance_amount?: number | null;
+  balance_paid?: boolean;
+  balance_paid_at?: string | null;
   admin_notes: string | null;
   quoted_amount: number | null;
+  total_amount?: number | null;
+  paid_at?: string | null;
   created_at: string;
 }
 
@@ -54,6 +77,7 @@ const statusColors: Record<string, string> = {
 const paymentColors: Record<string, string> = {
   unpaid: "bg-gray-500/20 text-gray-400",
   pending: "bg-yellow-500/20 text-yellow-500",
+  deposit_paid: "bg-blue-500/20 text-blue-500",
   paid: "bg-green-500/20 text-green-500",
 };
 
@@ -128,7 +152,9 @@ interface PaymentDashboardData {
 }
 
 const Admin = () => {
-  // Auth logic removed
+  const { getAuthHeaders, logout } = useAuth();
+  const navigate = useNavigate();
+ 
   const [quotes, setQuotes] = useState<QuoteWithStats[]>([]);
   const [showCreateQuote, setShowCreateQuote] = useState(false);
   const [activeTab, setActiveTab] = useState("quotes");
@@ -137,6 +163,19 @@ const Admin = () => {
   const [paymentData, setPaymentData] = useState<PaymentDashboardData | null>(null);
   const [paymentLoading, setPaymentLoading] = useState(false);
   const [paymentError, setPaymentError] = useState<string | null>(null);
+
+  // Analytics state
+  interface AnalyticsStats {
+    total: number;
+    today: number;
+    thisWeek: number;
+    uniqueVisitors: number;
+    dailyStats: { date: string; count: string }[];
+    topPages: { path: string; count: string }[];
+  }
+  const [analyticsData, setAnalyticsData] = useState<AnalyticsStats | null>(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [analyticsError, setAnalyticsError] = useState<string | null>(null);
   // Utilisateurs réels depuis l'API
   interface User {
     id: number | string;
@@ -148,17 +187,22 @@ const Admin = () => {
     useEffect(() => {
       const fetchUsers = async () => {
         try {
-          const res = await fetch("http://localhost:4000/api/users");
+          const res = await fetch(`${API_URL}/api/users`, {
+            headers: {
+              "Content-Type": "application/json",
+              ...getAuthHeaders()
+            }
+          });
           if (!res.ok) throw new Error("Erreur lors du chargement des utilisateurs");
           const data = await res.json();
           setUsers(data);
-          console.log('Utilisateurs récupérés:', data);
+          
         } catch {
           setUsers([]);
         }
       };
       fetchUsers();
-    }, []);
+    }, [getAuthHeaders]);
   const [selectedUserId, setSelectedUserId] = useState<number | 'new' | null>(null);
   const [newClient, setNewClient] = useState({ name: '', email: '' });
   const [newQuote, setNewQuote] = useState({
@@ -180,7 +224,9 @@ const Admin = () => {
   const [newStatus, setNewStatus] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [isSendingPayment, setIsSendingPayment] = useState(false);
+  const [isSendingBalancePayment, setIsSendingBalancePayment] = useState(false);
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
+  const [isGeneratingInvoice, setIsGeneratingInvoice] = useState(false);
 
   
 
@@ -188,7 +234,12 @@ const Admin = () => {
   const fetchQuotes = async () => {
     setIsLoading(true);
     try {
-      const res = await fetch("http://localhost:4000/api/quotes");
+      const res = await fetch(`${API_URL}/api/quotes`, {
+        headers: {
+          "Content-Type": "application/json",
+          ...getAuthHeaders()
+        }
+      });
       if (!res.ok) throw new Error("Erreur lors du chargement des devis");
       const data = await res.json();
       setQuotes(data);
@@ -208,7 +259,12 @@ const Admin = () => {
     setPaymentLoading(true);
     setPaymentError(null);
     try {
-      const response = await fetch('http://localhost:4000/api/payments/admin/dashboard');
+      const response = await fetch(`${API_URL}/api/payments/admin/dashboard`, {
+        headers: {
+          "Content-Type": "application/json",
+          ...getAuthHeaders()
+        }
+      });
       if (!response.ok) throw new Error('Erreur lors du chargement du dashboard');
       const result = await response.json();
       setPaymentData(result);
@@ -224,6 +280,72 @@ const Admin = () => {
       fetchPaymentDashboard();
     }
   }, [activeTab, paymentData]);
+
+  const fetchAnalytics = async () => {
+    setAnalyticsLoading(true);
+    setAnalyticsError(null);
+    try {
+      const response = await fetch(`${API_URL}/api/analytics/stats`, {
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+      });
+      if (!response.ok) throw new Error('Erreur lors du chargement des statistiques');
+      const result = await response.json();
+      setAnalyticsData(result);
+    } catch (err) {
+      setAnalyticsError(err instanceof Error ? err.message : 'Erreur inconnue');
+    } finally {
+      setAnalyticsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'analytics' && !analyticsData) {
+      fetchAnalytics();
+    }
+  }, [activeTab, analyticsData]);
+
+  // ── DB Admin state ──────────────────────────────
+  interface DbTable { name: string; row_count: string; size: string; column_count: string }
+  interface DbMigration { filename: string; applied_at: string }
+
+  const [dbTables, setDbTables] = useState<DbTable[]>([]);
+  const [dbTablesLoading, setDbTablesLoading] = useState(false);
+  const [selectedTable, setSelectedTable] = useState<string | null>(null);
+  const [dbTableData, setDbTableData] = useState<{ rows: Record<string, unknown>[]; columns: string[]; total: number; page: number } | null>(null);
+  const [dbTableLoading, setDbTableLoading] = useState(false);
+  const [dbPage, setDbPage] = useState(0);
+  const [dbMigrations, setDbMigrations] = useState<DbMigration[]>([]);
+
+  const fetchDbTables = async () => {
+    setDbTablesLoading(true);
+    try {
+      const [tablesRes, migrationsRes] = await Promise.all([
+        fetch(`${API_URL}/api/admin/db/tables`, { headers: { ...getAuthHeaders() } }),
+        fetch(`${API_URL}/api/admin/db/migrations`, { headers: { ...getAuthHeaders() } }),
+      ]);
+      if (tablesRes.ok) setDbTables(await tablesRes.json());
+      if (migrationsRes.ok) setDbMigrations(await migrationsRes.json());
+    } catch { /* silencieux */ }
+    finally { setDbTablesLoading(false); }
+  };
+
+  const fetchTableData = async (name: string, page = 0) => {
+    setDbTableLoading(true);
+    setDbTableData(null);
+    try {
+      const res = await fetch(`${API_URL}/api/admin/db/table/${encodeURIComponent(name)}?page=${page}`, {
+        headers: { ...getAuthHeaders() },
+      });
+      if (res.ok) setDbTableData(await res.json());
+    } catch { /* silencieux */ }
+    finally { setDbTableLoading(false); }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'database' && dbTables.length === 0) {
+      fetchDbTables();
+    }
+  }, [activeTab]);
 
   const formatCurrency = (amount: string | number) => {
     const num = typeof amount === 'string' ? parseFloat(amount) : amount;
@@ -242,12 +364,25 @@ const Admin = () => {
   const getPaymentStatusBadge = (status: string) => {
     const colors: Record<string, string> = {
       paid: 'bg-green-500/10 text-green-500 border-green-500/20',
+      deposit_paid: 'bg-blue-500/10 text-blue-500 border-blue-500/20',
       pending: 'bg-yellow-500/10 text-yellow-500 border-yellow-500/20',
       unpaid: 'bg-gray-500/10 text-gray-500 border-gray-500/20',
       failed: 'bg-red-500/10 text-red-500 border-red-500/20',
       cancelled: 'bg-orange-500/10 text-orange-500 border-orange-500/20',
     };
     return colors[status] || colors.unpaid;
+  };
+
+  const getPaymentStatusLabel = (status: string) => {
+    const labels: Record<string, string> = {
+      paid: 'Payé',
+      deposit_paid: 'Acompte payé',
+      pending: 'En attente',
+      unpaid: 'Non payé',
+      failed: 'Échoué',
+      cancelled: 'Annulé',
+    };
+    return labels[status] || status;
   };
 
   const handleSelectQuote = (quote: Quote) => {
@@ -260,25 +395,124 @@ const Admin = () => {
   const handleSaveQuote = async () => {
     if (!selectedQuote) return;
     setIsSaving(true);
-    // Simulate save
-    setTimeout(() => {
-      // Toast removed: Quote updated successfully
-      fetchQuotes();
-      setSelectedQuote({ 
-        ...selectedQuote, 
-        quoted_amount: quotedAmount ? parseInt(quotedAmount) * 100 : null,
-        admin_notes: adminNotes,
-        status: newStatus,
+    try {
+      const response = await fetch(`${API_URL}/api/quotes/${selectedQuote.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+        body: JSON.stringify({
+          quoted_amount: quotedAmount ? parseInt(quotedAmount) : null,
+          admin_notes: adminNotes,
+          status: newStatus,
+        }),
       });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "Erreur lors de la sauvegarde");
+      }
+
+      const updatedQuote = await response.json();
+      setSelectedQuote(updatedQuote);
+      await fetchQuotes();
+      alert("Devis mis à jour avec succès !");
+    } catch (error) {
+      console.error('Erreur:', error);
+      alert(error instanceof Error ? error.message : "Erreur lors de la sauvegarde");
+    } finally {
       setIsSaving(false);
-    }, 800);
+    }
+  };
+
+  const handleDeleteQuote = async () => {
+    if (!selectedQuote) return;
+    if (!confirm(`Êtes-vous sûr de vouloir supprimer le devis de ${selectedQuote.name} ?`)) return;
+
+    try {
+      const response = await fetch(`${API_URL}/api/quotes/${selectedQuote.id}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "Erreur lors de la suppression");
+      }
+
+      setSelectedQuote(null);
+      await fetchQuotes();
+      alert("Devis supprimé avec succès !");
+    } catch (error) {
+      console.error('Erreur:', error);
+      alert(error instanceof Error ? error.message : "Erreur lors de la suppression");
+    }
   };
 
   const handleSendPaymentRequest = async () => {
     if (!selectedQuote || !quotedAmount) return;
     setIsSendingPayment(true);
-    // Simulate payment link creation
+    try {
+      const response = await fetch(`${API_URL}/api/payments/create-payment-link`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+        body: JSON.stringify({ quoteId: selectedQuote.id }),
+      });
 
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "Erreur lors de la création du lien de paiement");
+      }
+
+      const data = await response.json();
+
+      // Ouvrir le lien de paiement dans un nouvel onglet
+      if (data.url) {
+        window.open(data.url, '_blank');
+      }
+
+      // Rafraîchir la liste des devis
+      await fetchQuotes();
+
+      alert(`Lien de paiement créé avec succès !\nMontant: ${selectedQuote.quoted_amount}€`);
+    } catch (error) {
+      console.error('Erreur:', error);
+      alert(error instanceof Error ? error.message : "Erreur lors de la création du lien de paiement");
+    } finally {
+      setIsSendingPayment(false);
+    }
+  };
+
+  const handleSendBalancePaymentRequest = async () => {
+    if (!selectedQuote) return;
+    setIsSendingBalancePayment(true);
+    try {
+      const response = await fetch(`${API_URL}/api/payments/create-balance-payment`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+        body: JSON.stringify({ quoteId: selectedQuote.id }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "Erreur lors de la création du lien de paiement du solde");
+      }
+
+      const data = await response.json();
+
+      // Ouvrir le lien de paiement dans un nouvel onglet
+      if (data.url) {
+        window.open(data.url, '_blank');
+      }
+
+      // Rafraîchir la liste des devis
+      await fetchQuotes();
+
+      alert(`Lien de paiement du solde créé avec succès !\nMontant: ${data.balanceAmount}€ (70%)`);
+    } catch (error) {
+      console.error('Erreur:', error);
+      alert(error instanceof Error ? error.message : "Erreur lors de la création du lien de paiement du solde");
+    } finally {
+      setIsSendingBalancePayment(false);
+    }
   };
 
   const handleDownloadPDF = async () => {
@@ -301,6 +535,50 @@ const Admin = () => {
     }
   };
 
+  const handleDownloadInvoice = async () => {
+    if (!selectedQuote) return;
+    setIsGeneratingInvoice(true);
+    try {
+      const response = await fetch(`${API_URL}/api/invoices/${selectedQuote.id}`, {
+        headers: getAuthHeaders(),
+      });
+      if (!response.ok) throw new Error('Impossible de générer la facture');
+      const data = await response.json();
+
+      const invoiceData = {
+        invoiceNumber: data.invoice.invoice_number,
+        generatedAt: data.invoice.generated_at,
+        quoteId: selectedQuote.id.toString(),
+        clientName: selectedQuote.name,
+        clientEmail: selectedQuote.email,
+        serviceType: selectedQuote.service_type,
+        description: selectedQuote.description,
+        totalAmount: selectedQuote.total_amount || selectedQuote.quoted_amount || 0,
+        depositAmount: selectedQuote.deposit_amount || 0,
+        depositPaidAt: selectedQuote.deposit_paid_at ?? null,
+        balancePaidAt: selectedQuote.balance_paid_at ?? null,
+        paidAt: selectedQuote.paid_at ?? null,
+        paymentStatus: selectedQuote.payment_status || '',
+        items: selectedQuote.items,
+      };
+
+      const blob = await pdf(<InvoicePDF invoice={invoiceData} />).toBlob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `facture-${data.invoice.invoice_number}-${selectedQuote.name.replace(/\s+/g, '-')}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Erreur lors de la génération de la facture:', error);
+      alert('Erreur lors de la génération de la facture');
+    } finally {
+      setIsGeneratingInvoice(false);
+    }
+  };
+
   // Statistiques business
   const totalRevenue = quotes.filter(q => q.payment_status === 'paid').reduce((sum, q) => sum + (q.quoted_amount || 0), 0);
   const totalExpenses = quotes.reduce((sum, q) => sum + (q.expenses || 0), 0);
@@ -314,9 +592,9 @@ const Admin = () => {
     try {
       if (selectedUserId === 'new') {
         // Créer le client via l'API
-        const res = await fetch("http://localhost:4000/api/users", {
+        const res = await fetch(`${API_URL}/api/users`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...getAuthHeaders() },
           body: JSON.stringify(newClient),
         });
         if (!res.ok) throw new Error("Erreur lors de la création du client");
@@ -325,7 +603,7 @@ const Admin = () => {
       } else {
         client = users.find(u => Number(u.id) === Number(selectedUserId)) || { name: newQuote.name, email: newQuote.email };
       }
-      console.log('Client utilisé pour le devis:', client);
+     
       const clientId = typeof client.id === 'string' ? parseInt(client.id, 10) : client.id;
       if (!clientId) {
         alert('Erreur : aucun client sélectionné ou id client invalide.');
@@ -365,8 +643,8 @@ const Admin = () => {
         project_id: null,
         client: clientId
       };
-      console.log('quoteToSend:', quoteToSend);
-      const resQuote = await fetch("http://localhost:4000/api/quotes", {
+      
+      const resQuote = await fetch(`${API_URL}/api/quotes`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(quoteToSend),
@@ -396,11 +674,18 @@ const Admin = () => {
             <p className="text-sm text-muted-foreground">Gestion des devis et paiements</p>
           </div>
           <div className="flex items-center gap-4">
-            <Button variant="outline" size="sm" onClick={activeTab === 'quotes' ? fetchQuotes : fetchPaymentDashboard}>
+            <Button variant="outline" size="sm" onClick={() => navigate("/")}>
+              <ArrowLeft className="w-4 h-4" />
+              retourner sur le site   
+            </Button>
+            <Button variant="outline" size="sm" onClick={activeTab === 'quotes' ? fetchQuotes : activeTab === 'payments' ? fetchPaymentDashboard : activeTab === 'analytics' ? fetchAnalytics : fetchDbTables}>
               <RefreshCw className="w-4 h-4" />
               Actualiser
             </Button>
-             <Button variant="ghost" size="sm" onClick={() => {}}>
+            <Button variant="ghost" size="sm" onClick={() => window.location.href = '/profile'}>
+              Mon Profil
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => { logout(); window.location.href = '/login'; }}>
               <LogOut className="w-4 h-4" />
               Déconnexion
             </Button>
@@ -411,14 +696,22 @@ const Admin = () => {
       {/* Tabs Navigation */}
       <div className="container mx-auto px-4 pt-6">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full max-w-md grid-cols-2">
+          <TabsList className="grid w-full max-w-2xl grid-cols-4">
             <TabsTrigger value="quotes" className="flex items-center gap-2">
               <FileText className="w-4 h-4" />
-              Gestion des devis
+              Devis
             </TabsTrigger>
             <TabsTrigger value="payments" className="flex items-center gap-2">
               <CreditCard className="w-4 h-4" />
               Paiements
+            </TabsTrigger>
+            <TabsTrigger value="analytics" className="flex items-center gap-2">
+              <BarChart3 className="w-4 h-4" />
+              Statistiques
+            </TabsTrigger>
+            <TabsTrigger value="database" className="flex items-center gap-2">
+              <Database className="w-4 h-4" />
+              Base de données
             </TabsTrigger>
           </TabsList>
 
@@ -656,15 +949,27 @@ const Admin = () => {
                     <p className="font-medium">{selectedQuote.timeline}</p>
                   </div>
                   <div className="p-4 rounded-xl bg-muted/30">
-                    <p className="text-xs text-muted-foreground mb-1">Payment Status</p>
-                    <p className={`font-medium ${selectedQuote.payment_status === "paid" ? "text-green-500" : ""}`}>
-                      {selectedQuote.payment_status || "Unpaid"}
-                      {selectedQuote.deposit_amount && selectedQuote.payment_status === "paid" && (
-                        <span className="text-sm text-muted-foreground ml-2">
-                          (${(selectedQuote.deposit_amount / 100).toFixed(2)})
-                        </span>
-                      )}
+                    <p className="text-xs text-muted-foreground mb-1">Statut Paiement</p>
+                    <p className={`font-medium ${
+                      selectedQuote.payment_status === "paid" ? "text-green-500" :
+                      selectedQuote.payment_status === "deposit_paid" ? "text-blue-500" : ""
+                    }`}>
+                      {selectedQuote.payment_status === "paid" && "Payé intégralement"}
+                      {selectedQuote.payment_status === "deposit_paid" && "Acompte payé (30%)"}
+                      {selectedQuote.payment_status === "pending" && "En attente"}
+                      {selectedQuote.payment_status === "unpaid" && "Non payé"}
+                      {!selectedQuote.payment_status && "Non payé"}
                     </p>
+                    {selectedQuote.deposit_amount && selectedQuote.deposit_amount > 0 && (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Acompte: {selectedQuote.deposit_amount.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
+                      </p>
+                    )}
+                    {selectedQuote.payment_status === "deposit_paid" && selectedQuote.quoted_amount && (
+                      <p className="text-xs text-orange-500 mt-1">
+                        Reste: {((selectedQuote.quoted_amount || 0) * 0.7).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
+                      </p>
+                    )}
                   </div>
                 </div>
 
@@ -765,30 +1070,81 @@ const Admin = () => {
                       {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
                       Save Changes
                     </Button>
+
+                    {/* Bouton Acompte (30%) - visible si pas encore payé */}
+                    {selectedQuote.payment_status !== 'deposit_paid' && selectedQuote.payment_status !== 'paid' && (
+                      <Button
+                        variant="outline"
+                        onClick={handleSendPaymentRequest}
+                        disabled={isSendingPayment || !quotedAmount}
+                        className="flex-1"
+                      >
+                        {isSendingPayment ? <Loader2 className="w-4 h-4 animate-spin" /> : <DollarSign className="w-4 h-4" />}
+                        Demander Acompte (30%)
+                      </Button>
+                    )}
+
+                    {/* Bouton Solde (70%) - visible si acompte payé mais pas le solde */}
+                    {selectedQuote.payment_status === 'deposit_paid' && (
+                      <Button
+                        variant="outline"
+                        onClick={handleSendBalancePaymentRequest}
+                        disabled={isSendingBalancePayment}
+                        className="flex-1 border-blue-500 text-blue-500 hover:bg-blue-500/10"
+                      >
+                        {isSendingBalancePayment ? <Loader2 className="w-4 h-4 animate-spin" /> : <DollarSign className="w-4 h-4" />}
+                        Demander Solde (70%)
+                      </Button>
+                    )}
+
+                    {/* Badge Payé - visible si tout est payé */}
+                    {selectedQuote.payment_status === 'paid' && (
+                      <div className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-md bg-green-500/10 text-green-500 border border-green-500/20">
+                        <CheckCircle className="w-4 h-4" />
+                        Entièrement payé
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex gap-3">
                     <Button
                       variant="outline"
-                      onClick={handleSendPaymentRequest}
-                      disabled={isSendingPayment || !quotedAmount}
+                      onClick={handleDownloadPDF}
+                      disabled={isGeneratingPDF}
                       className="flex-1"
                     >
-                      {isSendingPayment ? <Loader2 className="w-4 h-4 animate-spin" /> : <DollarSign className="w-4 h-4" />}
-                      Create Payment Link (30% Deposit)
+                      {isGeneratingPDF ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Download className="w-4 h-4 mr-2" />}
+                      Télécharger PDF
+                    </Button>
+                    {['deposit_paid', 'paid'].includes(selectedQuote.payment_status || '') && (
+                      <Button
+                        variant="outline"
+                        onClick={handleDownloadInvoice}
+                        disabled={isGeneratingInvoice}
+                        className="flex-1 border-green-500 text-green-600 hover:bg-green-500/10"
+                      >
+                        {isGeneratingInvoice ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Download className="w-4 h-4 mr-2" />}
+                        Facture PDF
+                      </Button>
+                    )}
+
+                    <Button
+                      variant="outline"
+                      onClick={handleDeleteQuote}
+                      className="border-red-500 text-red-500 hover:bg-red-500/10"
+                    >
+                      <Trash2 className="w-4 h-4 mr-2" />
+                      Supprimer
                     </Button>
                   </div>
 
-                  <Button
-                    variant="outline"
-                    onClick={handleDownloadPDF}
-                    disabled={isGeneratingPDF}
-                    className="w-full"
-                  >
-                    {isGeneratingPDF ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Download className="w-4 h-4 mr-2" />}
-                    Télécharger le devis (PDF)
-                  </Button>
-
-                  {quotedAmount && (
+                  {quotedAmount && selectedQuote.payment_status !== 'paid' && (
                     <p className="text-sm text-muted-foreground text-center">
-                      Deposit amount: ${(parseInt(quotedAmount) * 0.3).toFixed(2)} (30% of ${quotedAmount})
+                      {selectedQuote.payment_status === 'deposit_paid' ? (
+                        <>Solde à payer: {(parseInt(quotedAmount) * 0.7).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })} (70% de {parseInt(quotedAmount).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })})</>
+                      ) : (
+                        <>Acompte: {(parseInt(quotedAmount) * 0.3).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })} (30% de {parseInt(quotedAmount).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })})</>
+                      )}
                     </p>
                   )}
                 </div>
@@ -1131,7 +1487,7 @@ const Admin = () => {
                               </td>
                               <td className="py-3 px-4 text-center">
                                 <span className={`text-xs px-2 py-1 rounded-full border ${getPaymentStatusBadge(quote.payment_status)}`}>
-                                  {quote.payment_status}
+                                  {getPaymentStatusLabel(quote.payment_status)}
                                 </span>
                               </td>
                               <td className="py-3 px-4 text-right text-sm text-muted-foreground">
@@ -1146,6 +1502,309 @@ const Admin = () => {
                 </Card>
               </>
             )}
+          </TabsContent>
+
+          {/* Tab Content: Analytics */}
+          <TabsContent value="analytics" className="mt-6">
+            {analyticsLoading ? (
+              <div className="flex items-center justify-center py-24">
+                <div className="text-center">
+                  <Loader2 className="w-12 h-12 animate-spin text-primary mx-auto mb-4" />
+                  <p className="text-muted-foreground">Chargement des statistiques...</p>
+                </div>
+              </div>
+            ) : analyticsError || !analyticsData ? (
+              <div className="flex items-center justify-center py-24">
+                <div className="text-center">
+                  <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
+                  <p className="text-lg font-semibold mb-2">Erreur de chargement</p>
+                  <p className="text-muted-foreground mb-4">{analyticsError}</p>
+                  <Button onClick={fetchAnalytics} variant="outline">
+                    <RefreshCw className="w-4 h-4 mr-2" />
+                    Réessayer
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <>
+                {/* KPI cards */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                  <Card className="border-primary/20">
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                      <CardTitle className="text-sm font-medium">Total visites</CardTitle>
+                      <Eye className="h-4 w-4 text-primary" />
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-2xl font-bold text-primary">{analyticsData.total.toLocaleString('fr-FR')}</div>
+                      <p className="text-xs text-muted-foreground mt-1">Depuis le début</p>
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                      <CardTitle className="text-sm font-medium">Aujourd'hui</CardTitle>
+                      <TrendingUp className="h-4 w-4 text-green-500" />
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-2xl font-bold text-green-500">{analyticsData.today.toLocaleString('fr-FR')}</div>
+                      <p className="text-xs text-muted-foreground mt-1">Visites du jour</p>
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                      <CardTitle className="text-sm font-medium">Cette semaine</CardTitle>
+                      <BarChart3 className="h-4 w-4 text-blue-500" />
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-2xl font-bold text-blue-500">{analyticsData.thisWeek.toLocaleString('fr-FR')}</div>
+                      <p className="text-xs text-muted-foreground mt-1">7 derniers jours</p>
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                      <CardTitle className="text-sm font-medium">Visiteurs uniques</CardTitle>
+                      <Globe className="h-4 w-4 text-purple-500" />
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-2xl font-bold text-purple-500">{analyticsData.uniqueVisitors.toLocaleString('fr-FR')}</div>
+                      <p className="text-xs text-muted-foreground mt-1">30 derniers jours</p>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                  {/* Pages les plus visitées */}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <Eye className="w-5 h-5 text-primary" />
+                        Pages les plus visitées
+                      </CardTitle>
+                      <CardDescription>30 derniers jours</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      {analyticsData.topPages.length === 0 ? (
+                        <p className="text-sm text-muted-foreground text-center py-8">Aucune donnée disponible</p>
+                      ) : (
+                        <div className="space-y-3">
+                          {analyticsData.topPages.map((page, index) => {
+                            const maxCount = parseInt(analyticsData.topPages[0].count);
+                            const pct = Math.round((parseInt(page.count) / maxCount) * 100);
+                            return (
+                              <div key={index} className="space-y-1">
+                                <div className="flex justify-between text-sm">
+                                  <span className="font-mono text-muted-foreground truncate max-w-[200px]">{page.path || '/'}</span>
+                                  <span className="font-bold ml-2">{parseInt(page.count).toLocaleString('fr-FR')}</span>
+                                </div>
+                                <div className="h-2 rounded-full bg-muted overflow-hidden">
+                                  <div
+                                    className="h-full rounded-full bg-primary transition-all"
+                                    style={{ width: `${pct}%` }}
+                                  />
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  {/* Visites par jour */}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <BarChart3 className="w-5 h-5 text-primary" />
+                        Visites par jour
+                      </CardTitle>
+                      <CardDescription>30 derniers jours</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      {analyticsData.dailyStats.length === 0 ? (
+                        <p className="text-sm text-muted-foreground text-center py-8">Aucune donnée disponible</p>
+                      ) : (
+                        <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+                          {[...analyticsData.dailyStats].reverse().map((day, index) => {
+                            const maxCount = Math.max(...analyticsData.dailyStats.map(d => parseInt(d.count)));
+                            const pct = Math.round((parseInt(day.count) / maxCount) * 100);
+                            return (
+                              <div key={index} className="flex items-center gap-3">
+                                <span className="text-xs text-muted-foreground w-12 shrink-0">{day.date}</span>
+                                <div className="flex-1 h-2 rounded-full bg-muted overflow-hidden">
+                                  <div
+                                    className="h-full rounded-full bg-blue-500 transition-all"
+                                    style={{ width: `${pct}%` }}
+                                  />
+                                </div>
+                                <span className="text-xs font-bold w-8 text-right">{day.count}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </div>
+              </>
+            )}
+          </TabsContent>
+
+          {/* ── Tab: Base de données ─────────────────────── */}
+          <TabsContent value="database" className="mt-6 space-y-6">
+
+            {/* Bannière Adminer */}
+            <div className="flex items-start gap-3 p-4 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-600 text-sm">
+              <Database className="w-5 h-5 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-semibold">Gestion avancée via Adminer (tunnel SSH)</p>
+                <p className="text-blue-500 mt-0.5">
+                  Pour exécuter du SQL libre ou modifier des données : connecte-toi en SSH puis ouvre{' '}
+                  <code className="bg-blue-500/10 px-1 rounded font-mono">http://localhost:8080</code>
+                </p>
+                <code className="block mt-2 bg-black/20 px-3 py-1.5 rounded font-mono text-xs">
+                  ssh -L 8080:localhost:8080 user@redpandev.fr
+                </code>
+              </div>
+            </div>
+
+            {/* Section Migrations */}
+            <Card>
+              <CardHeader className="py-4">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <CheckCircle className="w-4 h-4 text-green-500" />
+                  Migrations appliquées ({dbMigrations.length})
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pt-0">
+                {dbMigrations.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">Aucune migration enregistrée</p>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {dbMigrations.map(m => (
+                      <span key={m.filename} className="text-xs px-3 py-1 rounded-full bg-green-500/10 text-green-600 border border-green-500/20 font-mono">
+                        {m.filename}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Section Explorateur de tables */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* Liste des tables */}
+              <Card className="lg:col-span-1">
+                <CardHeader className="py-4">
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <Table2 className="w-4 h-4 text-primary" />
+                    Tables ({dbTables.length})
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="pt-0">
+                  {dbTablesLoading ? (
+                    <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin" /></div>
+                  ) : (
+                    <div className="space-y-1 max-h-96 overflow-y-auto">
+                      {dbTables.map(table => (
+                        <button
+                          key={table.name}
+                          onClick={() => {
+                            setSelectedTable(table.name);
+                            setDbPage(0);
+                            fetchTableData(table.name, 0);
+                          }}
+                          className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
+                            selectedTable === table.name
+                              ? 'bg-primary/10 text-primary border border-primary/20'
+                              : 'hover:bg-muted/50'
+                          }`}
+                        >
+                          <div className="flex justify-between items-center">
+                            <span className="font-mono font-medium truncate">{table.name}</span>
+                            <span className="text-xs text-muted-foreground ml-2 shrink-0">{parseInt(table.row_count || '0').toLocaleString('fr-FR')} lignes</span>
+                          </div>
+                          <div className="text-xs text-muted-foreground mt-0.5">{table.size}</div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Données de la table sélectionnée — lecture seule */}
+              <Card className="lg:col-span-2">
+                <CardHeader className="py-4">
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <Database className="w-4 h-4 text-primary" />
+                    {selectedTable ? `"${selectedTable}"` : 'Sélectionne une table'}
+                    {selectedTable && <span className="text-xs font-normal text-muted-foreground ml-1">(lecture seule)</span>}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="pt-0">
+                  {!selectedTable ? (
+                    <div className="flex items-center justify-center h-48 text-muted-foreground text-sm">
+                      Clique sur une table pour voir ses données
+                    </div>
+                  ) : dbTableLoading ? (
+                    <div className="flex justify-center py-12"><Loader2 className="w-6 h-6 animate-spin" /></div>
+                  ) : dbTableData ? (
+                    <>
+                      <div className="overflow-x-auto rounded-lg border border-border/50">
+                        <table className="w-full text-xs">
+                          <thead className="bg-muted/40">
+                            <tr>
+                              {dbTableData.columns.map(col => (
+                                <th key={col} className="px-3 py-2 text-left font-mono font-semibold whitespace-nowrap">{col}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {dbTableData.rows.length === 0 ? (
+                              <tr><td colSpan={dbTableData.columns.length} className="px-3 py-6 text-center text-muted-foreground">Table vide</td></tr>
+                            ) : dbTableData.rows.map((row, i) => (
+                              <tr key={i} className="border-t border-border/30 hover:bg-muted/20">
+                                {dbTableData.columns.map(col => (
+                                  <td key={col} className="px-3 py-1.5 font-mono whitespace-nowrap max-w-[200px] truncate" title={String(row[col] ?? '')}>
+                                    {row[col] === null ? <span className="text-muted-foreground italic">null</span> : String(row[col])}
+                                  </td>
+                                ))}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      {/* Pagination */}
+                      <div className="flex items-center justify-between mt-3">
+                        <span className="text-xs text-muted-foreground">
+                          {dbTableData.page * 50 + 1}–{Math.min((dbTableData.page + 1) * 50, dbTableData.total)} sur {dbTableData.total.toLocaleString('fr-FR')}
+                        </span>
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={dbPage === 0}
+                            onClick={() => { const p = dbPage - 1; setDbPage(p); fetchTableData(selectedTable, p); }}
+                          >
+                            <ChevronLeft className="w-4 h-4" />
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={(dbPage + 1) * 50 >= dbTableData.total}
+                            onClick={() => { const p = dbPage + 1; setDbPage(p); fetchTableData(selectedTable, p); }}
+                          >
+                            <ChevronRight className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    </>
+                  ) : null}
+                </CardContent>
+              </Card>
+            </div>
+
           </TabsContent>
         </Tabs>
       </div>

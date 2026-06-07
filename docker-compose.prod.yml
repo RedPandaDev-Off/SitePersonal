@@ -1,0 +1,113 @@
+version: '3.8'
+
+services:
+
+  # ──────────────────────────────────────────
+  # Frontend React buildé → servi par Nginx
+  # ──────────────────────────────────────────
+  frontend:
+    build:
+      context: ./Front
+      args:
+        VITE_API_URL: ${CLIENT_URL}
+    container_name: sitepro-frontend
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./certbot/conf:/etc/letsencrypt:ro
+      - ./certbot/www:/var/www/certbot:ro
+    depends_on:
+      - backend
+    restart: always
+    networks:
+      - sitepro-network
+
+  # ──────────────────────────────────────────
+  # Certbot — renouvellement SSL automatique
+  # ──────────────────────────────────────────
+  certbot:
+    image: certbot/certbot
+    container_name: sitepro-certbot
+    volumes:
+      - ./certbot/conf:/etc/letsencrypt
+      - ./certbot/www:/var/www/certbot
+    entrypoint: >
+      /bin/sh -c "trap exit TERM;
+      while :; do
+        certbot renew --webroot -w /var/www/certbot --quiet;
+        sleep 12h & wait $${!};
+      done"
+    networks:
+      - sitepro-network
+
+  # ──────────────────────────────────────────
+  # Backend Node.js — accès via nginx proxy uniquement
+  # ──────────────────────────────────────────
+  backend:
+    build: ./backend
+    container_name: sitepro-backend
+    expose:
+      - "4000"
+    env_file:
+      - ./.env
+    environment:
+      - NODE_ENV=production
+      - PORT=4000
+      - DB_HOST=postgres
+      - DB_PORT=5432
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: always
+    networks:
+      - sitepro-network
+
+  # ──────────────────────────────────────────
+  # PostgreSQL
+  # ──────────────────────────────────────────
+  postgres:
+    image: postgres:15-alpine
+    container_name: sitepro-postgres
+    env_file:
+      - ./.env
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./backend/migrations:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: always
+    networks:
+      - sitepro-network
+
+  # ──────────────────────────────────────────
+  # Adminer — interface BDD (localhost uniquement)
+  # Accès : ssh -L 8080:localhost:8080 user@redpandev.fr
+  # puis ouvrir http://localhost:8080
+  # ──────────────────────────────────────────
+  adminer:
+    image: adminer:latest
+    container_name: sitepro-adminer
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres
+    depends_on:
+      - postgres
+    restart: always
+    networks:
+      - sitepro-network
+
+volumes:
+  postgres-data:
+
+networks:
+  sitepro-network:
+    driver: bridge

@@ -4,7 +4,6 @@ import {
   Text,
   View,
   StyleSheet,
-  Font,
 } from "@react-pdf/renderer";
 
 // Styles pour le PDF
@@ -231,7 +230,7 @@ interface QuoteItem {
 
 interface QuoteData {
   id: string;
-  client_id?: number | string;
+  client?: number | string;
   name: string;
   email: string;
   service_type: string;
@@ -286,9 +285,9 @@ const formatQuoteNumber = (id: string, createdAt: string, clientId?: number | st
 const QuotePDF = ({
   quote,
   companyName = "RedPandaDev",
-  companyAddress = "123 Rue de l'Exemple, 75001 Paris",
+  companyAddress = "1 Place Des Glasxiemes de Glasxième, 17170 Courçon",
   companyEmail = "redpandadev.contact@gmail.com",
-  companyPhone = "+33 1 23 45 67 89",
+  companyPhone = "+33 07 50 12 31 62",
 }: QuotePDFProps) => {
   // Calculer les totaux
   const items = quote.items || [];
@@ -297,10 +296,8 @@ const QuotePDF = ({
     0
   );
 
-  // Le quoted_amount est le prix final TTC en euros (pas en centimes)
+  // Micro-entrepreneur : pas de TVA, prix = prix final
   const totalTTC = quote.quoted_amount || itemsTotal;
-  const totalHT = totalTTC / 1.2; // Calcul du HT à partir du TTC (TVA 20%)
-  const tva = totalTTC - totalHT; // TVA = TTC - HT
   const deposit = totalTTC * 0.3; // Acompte 30%
 
   return (
@@ -324,11 +321,11 @@ const QuotePDF = ({
         {/* Title and Quote Number */}
         <Text style={styles.title}>DEVIS</Text>
         <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 20 }}>
-          <Text style={styles.quoteNumber}>N° {formatQuoteNumber(quote.id, quote.created_at, quote.client_id)}</Text>
+          <Text style={styles.quoteNumber}>N° {formatQuoteNumber(quote.id, quote.created_at, quote.client)}</Text>
           <View
             style={[
               styles.statusBadge,
-              quote.payment_status === "paid" && styles.statusPaid,
+              quote.payment_status === "paid" ? styles.statusPaid : {},
               { marginLeft: 10 },
             ]}
           >
@@ -417,16 +414,8 @@ const QuotePDF = ({
 
             {/* Totals */}
             <View style={styles.totalsSection}>
-              <View style={styles.totalRow}>
-                <Text style={styles.totalLabel}>Sous-total HT :</Text>
-                <Text style={styles.totalValue}>{formatCurrency(totalHT)}</Text>
-              </View>
-              <View style={styles.totalRow}>
-                <Text style={styles.totalLabel}>TVA (20%) :</Text>
-                <Text style={styles.totalValue}>{formatCurrency(tva)}</Text>
-              </View>
               <View style={styles.grandTotal}>
-                <Text style={styles.grandTotalLabel}>Total TTC :</Text>
+                <Text style={styles.grandTotalLabel}>Total :</Text>
                 <Text style={styles.grandTotalValue}>{formatCurrency(totalTTC)}</Text>
               </View>
               <View style={[styles.totalRow, { marginTop: 10 }]}>
@@ -469,7 +458,7 @@ const QuotePDF = ({
         {/* Footer */}
         <View style={styles.footer}>
           <Text>
-            {companyName} - SIRET: XXX XXX XXX XXXXX - TVA: FRXX XXXXXXXXX
+            {companyName} - SIRET: 98930587500019 - TVA non applicable, art. 293 B du CGI
           </Text>
           <Text style={{ marginTop: 3 }}>
             Devis généré le {formatDate(new Date().toISOString())}

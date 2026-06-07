@@ -38,8 +38,9 @@ DB_HOST=localhost
 DB_PORT=5432
 
 # Stripe
-STRIPE_SECRET_KEY=sk_test_votre_cle_secrete
-STRIPE_WEBHOOK_SECRET=whsec_votre_webhook_secret
+STRIPE_SECRET_KEY=pk_live_51Sajl6K8fOlEVjVYihTRemzwFVBvQV9I52NQFmZ4JyGT7ZgW90MLsyw4lG8f20LaIEGV7dlkQ3BTl2yTJvo8qtyo00X8nzM6k2
+STRIPE_WEBHOOK_SECRET=whsec_izolmHlo5wZH55eTTP6VTXD45zo0al6J
+
 
 # Client (Frontend)
 CLIENT_URL=http://localhost:5173

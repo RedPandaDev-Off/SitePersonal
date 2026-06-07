@@ -7,6 +7,8 @@ export interface User {
 
 export interface AuthContextType {
   user: User | null;
-  login: (user: User) => void;
+  token: string | null;
+  login: (user: User, token: string) => void;
   logout: () => void;
+  getAuthHeaders: () => { Authorization: string } | {};
 }

@@ -44,6 +44,12 @@ const createPaymentLink = async (req, res) => {
       return res.status(400).json({ error: 'Le montant du devis est invalide' });
     }
 
+    // Calculer l'acompte (30% du montant total)
+    const depositPercentage = 0.30;
+    const depositAmount = quote.deposit_amount && quote.deposit_amount > 0
+      ? parseFloat(quote.deposit_amount)
+      : parseFloat(quote.total_amount) * depositPercentage;
+
     // Si un lien existe déjà, le retourner
     if (quote.stripe_payment_link) {
       return res.json({
@@ -55,19 +61,21 @@ const createPaymentLink = async (req, res) => {
 
     // Créer un produit Stripe pour ce devis
     const product = await stripe.products.create({
-      name: `Devis #${quote.id}${quote.project_name ? ' - ' + quote.project_name : ''}`,
-      description: quote.description || quote.service_type || 'Service professionnel',
+      name: `Acompte Devis #${quote.id}${quote.project_name ? ' - ' + quote.project_name : ''}`,
+      description: `Acompte de 30% - ${quote.description || quote.service_type || 'Service professionnel'}`,
       metadata: {
         quoteId: quoteId.toString(),
         userId: quote.client?.toString() || '',
         projectId: quote.project_id?.toString() || '',
+        isDeposit: 'true',
+        depositPercentage: '30',
       },
     });
 
-    // Créer un prix pour ce produit
+    // Créer un prix pour ce produit (acompte 30%)
     const price = await stripe.prices.create({
       product: product.id,
-      unit_amount: Math.round(quote.total_amount * 100), // Montant en centimes
+      unit_amount: Math.round(depositAmount * 100), // Montant de l'acompte en centimes
       currency: 'eur',
     });
 
@@ -82,32 +90,35 @@ const createPaymentLink = async (req, res) => {
       after_completion: {
         type: 'redirect',
         redirect: {
-          url: `${process.env.CLIENT_URL}/payment/success?quote_id=${quoteId}`,
+          url: `${process.env.CLIENT_URL}/payment/success?quote_id=${quoteId}&type=deposit`,
         },
       },
       metadata: {
         quoteId: quoteId.toString(),
         userId: quote.client?.toString() || '',
         projectId: quote.project_id?.toString() || '',
+        paymentType: 'deposit',
       },
     });
 
-    // Mettre à jour le devis avec le lien de paiement
+    // Mettre à jour le devis avec le lien de paiement et le montant de l'acompte
     await pool.query(
       `UPDATE quotes
-       SET payment_status = $1, stripe_payment_link = $2, updated_at = NOW()
-       WHERE id = $3`,
-      ['pending', paymentLink.url, quoteId]
+       SET payment_status = $1, stripe_payment_link = $2, deposit_amount = $3, updated_at = NOW()
+       WHERE id = $4`,
+      ['pending', paymentLink.url, depositAmount, quoteId]
     );
 
-    console.log(`✅ Payment Link créé pour le devis #${quoteId}`);
+  
 
     res.json({
       paymentLinkId: paymentLink.id,
       url: paymentLink.url,
       message: 'Lien de paiement permanent créé avec succès',
       quoteId: quoteId,
-      amount: quote.total_amount
+      totalAmount: quote.total_amount,
+      depositAmount: depositAmount,
+      depositPercentage: 30
     });
 
   } catch (error) {
@@ -159,6 +170,12 @@ const createCheckoutSession = async (req, res) => {
       return res.status(400).json({ error: 'Le montant du devis est invalide' });
     }
 
+    // Calculer l'acompte (30% du montant total)
+    const depositPercentage = 0.30;
+    const depositAmount = quote.deposit_amount && quote.deposit_amount > 0
+      ? parseFloat(quote.deposit_amount)
+      : parseFloat(quote.total_amount) * depositPercentage;
+
     // Créer la session Stripe Checkout
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
@@ -167,10 +184,10 @@ const createCheckoutSession = async (req, res) => {
           price_data: {
             currency: 'eur',
             product_data: {
-              name: `Devis #${quote.id}${quote.project_name ? ' - ' + quote.project_name : ''}`,
-              description: quote.description || quote.service_type || 'Service professionnel',
+              name: `Acompte Devis #${quote.id}${quote.project_name ? ' - ' + quote.project_name : ''}`,
+              description: `Acompte de 30% - ${quote.description || quote.service_type || 'Service professionnel'}`,
             },
-            unit_amount: Math.round(quote.total_amount * 100),
+            unit_amount: Math.round(depositAmount * 100),
           },
           quantity: 1,
         },
@@ -186,22 +203,24 @@ const createCheckoutSession = async (req, res) => {
       },
     });
 
-    // Mettre à jour le devis avec l'ID de session
+    // Mettre à jour le devis avec l'ID de session et le montant de l'acompte
     await pool.query(
       `UPDATE quotes
-       SET payment_status = $1, stripe_session_id = $2, updated_at = NOW()
-       WHERE id = $3`,
-      ['pending', session.id, quoteId]
+       SET payment_status = $1, stripe_session_id = $2, deposit_amount = $3, updated_at = NOW()
+       WHERE id = $4`,
+      ['pending', session.id, depositAmount, quoteId]
     );
 
-    console.log(`✅ Checkout Session créée pour le devis #${quoteId}`);
+
 
     res.json({
       sessionId: session.id,
       url: session.url,
       message: 'Session de paiement créée avec succès (expire dans 24h)',
       quoteId: quoteId,
-      amount: quote.total_amount
+      totalAmount: quote.total_amount,
+      depositAmount: depositAmount,
+      depositPercentage: 30
     });
 
   } catch (error) {
@@ -232,7 +251,7 @@ const handleWebhook = async (req, res) => {
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 
-  console.log(`📨 Webhook reçu: ${event.type}`);
+
 
   // Gérer les différents types d'événements Stripe
   try {
@@ -264,27 +283,55 @@ const handleWebhook = async (req, res) => {
 const handleCheckoutSessionCompleted = async (session) => {
   try {
     const quoteId = session.metadata.quoteId;
+    const paymentType = session.metadata.paymentType || 'deposit'; // deposit ou balance
 
     if (!quoteId) {
       console.error('❌ Pas de quoteId dans les metadata de la session');
       return;
     }
 
-    // Mettre à jour le devis
-    const result = await pool.query(
-      `UPDATE quotes
-       SET payment_status = $1,
-           stripe_payment_intent_id = $2,
-           paid_at = NOW(),
-           updated_at = NOW()
-       WHERE id = $3
-       RETURNING *`,
-      ['paid', session.payment_intent, quoteId]
-    );
+    // Récupérer le devis actuel
+    const quoteResult = await pool.query('SELECT * FROM quotes WHERE id = $1', [quoteId]);
+    if (quoteResult.rows.length === 0) {
+      console.error(`❌ Devis #${quoteId} non trouvé`);
+      return;
+    }
 
-    if (result.rows.length > 0) {
-      console.log(`✅ Paiement réussi pour le devis #${quoteId} - Montant: ${result.rows[0].total_amount}€`);
+    const quote = quoteResult.rows[0];
+    let result;
+
+    if (paymentType === 'balance') {
+      // Paiement du SOLDE (70%)
+      result = await pool.query(
+        `UPDATE quotes
+         SET payment_status = $1,
+             balance_paid = TRUE,
+             balance_paid_at = NOW(),
+             stripe_payment_intent_id = $2,
+             paid_at = NOW(),
+             updated_at = NOW()
+         WHERE id = $3
+         RETURNING *`,
+        ['paid', session.payment_intent, quoteId]
+      );
+    
     } else {
+      // Paiement de l'ACOMPTE (30%)
+      result = await pool.query(
+        `UPDATE quotes
+         SET payment_status = $1,
+             deposit_paid = TRUE,
+             deposit_paid_at = NOW(),
+             stripe_payment_intent_id = $2,
+             updated_at = NOW()
+         WHERE id = $3
+         RETURNING *`,
+        ['deposit_paid', session.payment_intent, quoteId]
+      );
+     
+    }
+
+    if (result.rows.length === 0) {
       console.error(`❌ Devis #${quoteId} non trouvé`);
     }
   } catch (error) {
@@ -296,27 +343,55 @@ const handleCheckoutSessionCompleted = async (session) => {
 const handlePaymentIntentSucceeded = async (paymentIntent) => {
   try {
     const quoteId = paymentIntent.metadata.quoteId;
+    const paymentType = paymentIntent.metadata.paymentType || 'deposit';
 
     if (!quoteId) {
       console.error('❌ Pas de quoteId dans les metadata du payment intent');
       return;
     }
 
-    // Mettre à jour le devis
-    const result = await pool.query(
-      `UPDATE quotes
-       SET payment_status = $1,
-           stripe_payment_intent_id = $2,
-           paid_at = NOW(),
-           updated_at = NOW()
-       WHERE id = $3
-       RETURNING *`,
-      ['paid', paymentIntent.id, quoteId]
-    );
+    // Récupérer le devis actuel
+    const quoteResult = await pool.query('SELECT * FROM quotes WHERE id = $1', [quoteId]);
+    if (quoteResult.rows.length === 0) {
+      console.error(`❌ Devis #${quoteId} non trouvé`);
+      return;
+    }
 
-    if (result.rows.length > 0) {
-      console.log(`✅ Payment Intent réussi pour le devis #${quoteId} - Montant: ${result.rows[0].total_amount}€`);
+    const quote = quoteResult.rows[0];
+    let result;
+
+    if (paymentType === 'balance') {
+      // Paiement du SOLDE (70%)
+      result = await pool.query(
+        `UPDATE quotes
+         SET payment_status = $1,
+             balance_paid = TRUE,
+             balance_paid_at = NOW(),
+             stripe_payment_intent_id = $2,
+             paid_at = NOW(),
+             updated_at = NOW()
+         WHERE id = $3
+         RETURNING *`,
+        ['paid', paymentIntent.id, quoteId]
+      );
+
     } else {
+      // Paiement de l'ACOMPTE (30%)
+      result = await pool.query(
+        `UPDATE quotes
+         SET payment_status = $1,
+             deposit_paid = TRUE,
+             deposit_paid_at = NOW(),
+             stripe_payment_intent_id = $2,
+             updated_at = NOW()
+         WHERE id = $3
+         RETURNING *`,
+        ['deposit_paid', paymentIntent.id, quoteId]
+      );
+
+    }
+
+    if (result.rows.length === 0) {
       console.error(`❌ Devis #${quoteId} non trouvé`);
     }
   } catch (error) {
@@ -345,7 +420,7 @@ const handlePaymentFailed = async (paymentIntent) => {
     );
 
     if (result.rows.length > 0) {
-      console.log(`❌ Paiement échoué pour le devis #${quoteId}`);
+      
     } else {
       console.error(`❌ Devis #${quoteId} non trouvé`);
     }
@@ -368,9 +443,17 @@ const getPaymentStatus = async (req, res) => {
         q.id,
         q.payment_status,
         q.total_amount,
+        q.deposit_amount,
+        q.deposit_paid,
+        q.deposit_paid_at,
+        q.balance_amount,
+        q.balance_paid,
+        q.balance_paid_at,
+        q.service_type,
         q.stripe_session_id,
         q.stripe_payment_intent_id,
         q.stripe_payment_link,
+        q.stripe_balance_payment_link,
         q.paid_at,
         q.status,
         q.created_at,
@@ -678,6 +761,142 @@ const getStripePaymentDetails = async (req, res) => {
 
 /**
  * ========================================
+ * PAIEMENT DU SOLDE (70%)
+ * Créer un lien de paiement pour le reste
+ * ========================================
+ */
+const createBalancePaymentLink = async (req, res) => {
+  try {
+    const { quoteId } = req.body;
+
+    if (!quoteId) {
+      return res.status(400).json({ error: 'Le quoteId est requis' });
+    }
+
+    // Récupérer les informations du devis
+    const quoteQuery = await pool.query(
+      `SELECT q.*, u.email, u.name as user_name, p.name as project_name
+       FROM quotes q
+       LEFT JOIN users u ON q.client = u.id
+       LEFT JOIN projects p ON q.project_id = p.id
+       WHERE q.id = $1`,
+      [quoteId]
+    );
+
+    if (quoteQuery.rows.length === 0) {
+      return res.status(404).json({ error: 'Devis non trouvé' });
+    }
+
+    const quote = quoteQuery.rows[0];
+
+    // Vérifier que l'acompte a été payé
+    if (!quote.deposit_paid && quote.payment_status !== 'deposit_paid') {
+      return res.status(400).json({
+        error: 'L\'acompte doit être payé avant de demander le solde',
+        depositPaid: false
+      });
+    }
+
+    // Vérifier que le solde n'est pas déjà payé
+    if (quote.balance_paid || quote.payment_status === 'paid') {
+      return res.status(400).json({
+        error: 'Le solde a déjà été payé',
+        balancePaid: true
+      });
+    }
+
+    // Calculer le montant du solde (70% ou le reste)
+    const totalAmount = parseFloat(quote.total_amount);
+    const depositAmount = parseFloat(quote.deposit_amount) || totalAmount * 0.30;
+    const balanceAmount = totalAmount - depositAmount;
+
+    if (balanceAmount <= 0) {
+      return res.status(400).json({ error: 'Le montant du solde est invalide' });
+    }
+
+    // Si un lien de solde existe déjà, le retourner
+    if (quote.stripe_balance_payment_link) {
+      return res.json({
+        url: quote.stripe_balance_payment_link,
+        message: 'Lien de paiement du solde existant récupéré',
+        alreadyExists: true
+      });
+    }
+
+    // Créer un produit Stripe pour le solde
+    const product = await stripe.products.create({
+      name: `Solde Devis #${quote.id}${quote.project_name ? ' - ' + quote.project_name : ''}`,
+      description: `Solde de 70% - ${quote.description || quote.service_type || 'Service professionnel'}`,
+      metadata: {
+        quoteId: quoteId.toString(),
+        userId: quote.client?.toString() || '',
+        projectId: quote.project_id?.toString() || '',
+        isBalance: 'true',
+        balancePercentage: '70',
+      },
+    });
+
+    // Créer un prix pour le solde
+    const price = await stripe.prices.create({
+      product: product.id,
+      unit_amount: Math.round(balanceAmount * 100),
+      currency: 'eur',
+    });
+
+    // Créer le Payment Link pour le solde
+    const paymentLink = await stripe.paymentLinks.create({
+      line_items: [
+        {
+          price: price.id,
+          quantity: 1,
+        },
+      ],
+      after_completion: {
+        type: 'redirect',
+        redirect: {
+          url: `${process.env.CLIENT_URL}/payment/success?quote_id=${quoteId}&type=balance`,
+        },
+      },
+      metadata: {
+        quoteId: quoteId.toString(),
+        userId: quote.client?.toString() || '',
+        projectId: quote.project_id?.toString() || '',
+        paymentType: 'balance',
+      },
+    });
+
+    // Mettre à jour le devis avec le lien de paiement du solde
+    await pool.query(
+      `UPDATE quotes
+       SET stripe_balance_payment_link = $1, balance_amount = $2, updated_at = NOW()
+       WHERE id = $3`,
+      [paymentLink.url, balanceAmount, quoteId]
+    );
+
+    
+
+    res.json({
+      paymentLinkId: paymentLink.id,
+      url: paymentLink.url,
+      message: 'Lien de paiement du solde créé avec succès',
+      quoteId: quoteId,
+      totalAmount: totalAmount,
+      depositAmount: depositAmount,
+      balanceAmount: balanceAmount,
+      balancePercentage: 70
+    });
+
+  } catch (error) {
+    console.error('Erreur lors de la création du Payment Link solde:', error);
+    res.status(500).json({
+      error: 'Erreur lors de la création du lien de paiement du solde',
+      details: error.message
+    });
+  }
+};
+
+/**
+ * ========================================
  * ANNULER/DÉSACTIVER UN PAYMENT LINK
  * ========================================
  */
@@ -721,7 +940,7 @@ const deactivatePaymentLink = async (req, res) => {
       ['cancelled', quoteId]
     );
 
-    console.log(`✅ Payment Link désactivé pour le devis #${quoteId}`);
+
 
     res.json({
       message: 'Lien de paiement désactivé avec succès',
@@ -729,7 +948,7 @@ const deactivatePaymentLink = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Erreur lors de la désactivation du Payment Link:', error);
+    
     res.status(500).json({
       error: 'Erreur lors de la désactivation du lien de paiement',
       details: error.message
@@ -739,6 +958,7 @@ const deactivatePaymentLink = async (req, res) => {
 
 module.exports = {
   createPaymentLink,
+  createBalancePaymentLink,
   createCheckoutSession,
   handleWebhook,
   getPaymentStatus,

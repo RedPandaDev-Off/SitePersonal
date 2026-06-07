@@ -1,28 +1,30 @@
 import React, { useState } from "react";
+import { useAuth } from "../lib/auth";
+
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:4000";
 
 const Login: React.FC = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const { login } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
     setLoading(true);
     try {
-      const response = await fetch("http://localhost:4000/api/users/login", {
+      const response = await fetch(`${API_URL}/api/users/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password })
       });
       const data = await response.json();
       if (response.ok) {
-        if (data.user) {
-          localStorage.removeItem('adminUser');
-          const {  ...user } = data.user;
-          localStorage.setItem('adminUser', JSON.stringify(user));
-          console.log('Utilisateur stocké dans localStorage (adminUser):', user);
+        if (data.user && data.token) {
+          // Utiliser le contexte auth avec le token JWT
+          login(data.user, data.token);
         }
         // Redirige selon le rôle ou autre logique
         if (data.user && data.user.role && data.user.role.toLowerCase() === "admin") {
@@ -94,7 +96,10 @@ const Login: React.FC = () => {
             Back to site
           </button>
         </a>
-        <div className="mt-4 text-center">
+        <div className="mt-4 text-center space-y-2">
+          <a href="/forgot-password" className="text-muted-foreground hover:underline text-sm block">
+            Mot de passe oublié ?
+          </a>
           <a href="/register" className="text-primary hover:underline text-sm font-medium">
             Create an account
           </a>

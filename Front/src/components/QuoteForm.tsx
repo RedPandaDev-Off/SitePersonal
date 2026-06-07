@@ -215,6 +215,10 @@ const QuoteForm = () => {
             <p className="text-center text-sm text-muted-foreground">
               No commitment required. Free consultation included.
             </p>
+
+            <p className="text-center text-xs text-muted-foreground/70 mt-2">
+             I reserve the right to refuse any request based on my availability or if the project does not match my skills. See the <a href="/cgv" className="text-primary hover:underline">Terms and Conditions</a> for more details.
+            </p>
           </form>
         </div>
       </div>

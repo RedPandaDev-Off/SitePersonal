@@ -1,6 +1,9 @@
 import React, { useState } from "react";
 
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:4000";
+
 const Register: React.FC = () => {
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -16,15 +19,20 @@ const Register: React.FC = () => {
       setError("Les mots de passe ne correspondent pas");
       return;
     }
+    if (password.length < 6) {
+      setError("Le mot de passe doit contenir au moins 6 caractères");
+      return;
+    }
     setLoading(true);
     try {
-      const response = await fetch("http://localhost:4000/api/users", {
+      const response = await fetch(`${API_URL}/api/users/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: email.split('@')[0], email, password }),
+        body: JSON.stringify({ name: name || email.split('@')[0], email, password }),
       });
       if (response.ok) {
         setSuccess("Compte créé avec succès ! Vous pouvez vous connecter.");
+        setName("");
         setEmail("");
         setPassword("");
         setConfirmPassword("");
@@ -44,6 +52,20 @@ const Register: React.FC = () => {
         <h2 className="font-heading text-2xl font-bold mb-6 text-gradient text-center">Create an account</h2>
         <form onSubmit={handleSubmit} className="space-y-6">
           <div>
+            <label className="block mb-1 text-sm text-muted-foreground font-medium" htmlFor="name">
+              Nom
+            </label>
+            <input
+              id="name"
+              type="text"
+              className="w-full border border-border px-3 py-2 rounded-lg focus:outline-none focus:ring focus:border-primary text-black bg-muted/30"
+              value={name}
+              onChange={e => setName(e.target.value)}
+              autoComplete="name"
+              placeholder="Votre nom"
+            />
+          </div>
+          <div>
             <label className="block mb-1 text-sm text-muted-foreground font-medium" htmlFor="email">
               Email
             </label>
@@ -55,7 +77,7 @@ const Register: React.FC = () => {
               onChange={e => setEmail(e.target.value)}
               required
               autoComplete="username"
-              placeholder="Enter your email"
+              placeholder="Votre email"
             />
           </div>
           <div>

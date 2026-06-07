@@ -58,10 +58,16 @@ const Dashboard: React.FC = () => {
           <section className="bg-white rounded-2xl shadow p-6 border border-blue-100">
             <h2 className="text-xl font-semibold mb-2 text-blue-800">Vos Informations</h2>
             <p className="text-gray-600 mb-2">Affichez et gérez vos informations personnelles ici.</p>
-            <ul className="text-gray-700">
+            <ul className="text-gray-700 mb-4">
               <li><span className="font-medium">Nom :</span> {user?.name}</li>
               <li><span className="font-medium">Email :</span> {user?.email}</li>
             </ul>
+            <button
+              onClick={() => navigate("/profile")}
+              className="bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 transition text-sm font-medium"
+            >
+              Modifier mon profil
+            </button>
           </section>
 
           <section className="bg-white rounded-2xl shadow p-6 border border-blue-100">

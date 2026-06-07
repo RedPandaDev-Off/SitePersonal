@@ -1,8 +1,9 @@
 node_modules
-npm-debug.log
 .env
-.git
-.gitignore
+.env.*
+*.log
+certbot
+docker-compose*.yml
+Dockerfile
 README.md
-*.md
-.DS_Store
+STRIPE_SETUP.md

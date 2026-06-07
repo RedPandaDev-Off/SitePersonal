@@ -6,7 +6,6 @@ import {
   TrendingUp,
   Clock,
   CheckCircle,
-  XCircle,
   AlertCircle,
   Users,
   FileText,
